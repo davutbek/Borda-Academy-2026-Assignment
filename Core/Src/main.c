@@ -13,6 +13,11 @@
   * in the root directory of this software component.
   * If no LICENSE file comes with this software, it is provided AS-IS.
   *
+  *	@Reference: This project architecture and code generation were assisted by
+  * AI tools (Claude Sonnet 4.6) as encouraged in the Borda Academy 2026
+  * assignment guidelines. Sensor datasheet links and revisions are manually
+  * verified and documented in their respective header files.
+  *
   ******************************************************************************
   */
 /* USER CODE END Header */
@@ -22,6 +27,12 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+
+#include <stdio.h>              /* printf()                                    */
+#include "sensor_manager.h"     /* i2c_sensor_read(), sensor_t                 */
+#include "median_filter.h"      /* filter_sensor_value(), median_filter_reset_all() */
+#include "circular_buffer.h"    /* buf_handle_t, buffer_put_value(), ...       */
+#include "ble_simulator.h"      /* ble_packet_t, ble_compute_statistics(), ... */
 
 /* USER CODE END Includes */
 
@@ -51,6 +62,37 @@ UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
 
+/* ── Timing constants ────────────────────────────────────────────────────
+ *   HAL_GetTick() returns ms elapsed since boot.
+ *   1 Hz  = 1 000 ms   → sensor read period
+ *   30 s  = 30 000 ms  → BLE / UART report period                         */
+#define SENSOR_READ_PERIOD_MS    (1000UL)
+#define BLE_REPORT_PERIOD_MS    (30000UL)
+
+/* ── Circular buffer capacity ────────────────────────────────────────────
+ *   30 seconds × 1 sample/s = 30 samples.
+ *   Adding a few extra slots (32) avoids any off-by-one wrap issues.      */
+#define SENSOR_BUF_CAPACITY     (32U)
+
+/* ── Filter window size ──────────────────────────────────────────────────
+ *   5-sample window: good noise rejection, low latency at 1 Hz.
+ *   Must be odd (or median_filter will promote it); see median_filter.h.  */
+#define FILTER_WINDOW_SIZE       (5U)
+
+/* ── Backing arrays for the three circular buffers ───────────────────────*/
+static float s_temp_data_arr[SENSOR_BUF_CAPACITY];
+static float s_hum_data_arr [SENSOR_BUF_CAPACITY];
+static float s_co2_data_arr [SENSOR_BUF_CAPACITY];
+
+/* ── Circular buffer handles ─────────────────────────────────────────────*/
+static struct buf_handle_t s_temp_buf;
+static struct buf_handle_t s_hum_buf;
+static struct buf_handle_t s_co2_buf;
+
+/* ── Timestamp trackers ──────────────────────────────────────────────────*/
+static uint32_t s_last_read_tick   = 0UL;
+static uint32_t s_last_report_tick = 0UL;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -68,6 +110,26 @@ void MX_USB_HOST_Process(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+/*
+ * Redirect printf() → UART2 (115 200 8N1).
+ *
+ * STM32CubeIDE's syscalls.c provides a weak _write() that calls
+ * __io_putchar() one byte at a time.  This override sends the whole
+ * buffer in a single HAL_UART_Transmit() call, which is more efficient
+ * and avoids the overhead of per-byte interrupt entries.
+ *
+ * NOTE: huart2 is declared in main.c by CubeIDE; the extern declaration
+ * here makes it visible to this translation unit.
+ */
+extern UART_HandleTypeDef huart2;
+
+int __io_putchar(int ch)
+{
+    uint8_t byte = (uint8_t)ch;
+    HAL_UART_Transmit(&huart2, &byte, 1U, HAL_MAX_DELAY);
+    return ch;
+}
 
 /* USER CODE END 0 */
 
@@ -107,6 +169,25 @@ int main(void)
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
 
+  /* Initialise all median filter instances */
+      median_filter_reset_all();
+
+      /* Initialise circular buffers */
+      buffer_init(&s_temp_buf, s_temp_data_arr, SENSOR_BUF_CAPACITY);
+      buffer_init(&s_hum_buf,  s_hum_data_arr,  SENSOR_BUF_CAPACITY);
+      buffer_init(&s_co2_buf,  s_co2_data_arr,  SENSOR_BUF_CAPACITY);
+
+      /* Capture boot time so the first read fires almost immediately */
+      s_last_read_tick   = HAL_GetTick();
+      s_last_report_tick = HAL_GetTick();
+
+      printf("\r\n========================================\r\n");
+      printf("  Borda Academy 2026 — Sensor Monitor  \r\n");
+      printf("  Board: STM32F407G-DISC1              \r\n");
+      printf("  Read period : %lu ms                 \r\n", SENSOR_READ_PERIOD_MS);
+      printf("  Report period: %lu ms                \r\n", BLE_REPORT_PERIOD_MS);
+      printf("========================================\r\n\r\n");
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -117,6 +198,63 @@ int main(void)
     MX_USB_HOST_Process();
 
     /* USER CODE BEGIN 3 */
+
+    uint32_t now = HAL_GetTick();
+
+            /* ── 1 Hz: Read all three sensors, filter, and buffer ────────────── */
+            if ((now - s_last_read_tick) >= SENSOR_READ_PERIOD_MS)
+            {
+                s_last_read_tick = now;
+
+                /*
+                 * Sensor read order MUST remain fixed:
+                 *   1. TEMP     → median filter instance 0
+                 *   2. HUMIDITY → median filter instance 1
+                 *   3. CO2      → median filter instance 2
+                 * Changing the order breaks the round-robin assignment in
+                 * median_filter.c.  See median_filter.h for details.
+                 */
+
+                /* 1. Temperature — TMP102 @ 0x48 */
+                float raw_temp = i2c_sensor_read(SENSOR_ADDR_TEMP, TEMP);
+                float flt_temp = filter_sensor_value(raw_temp, FILTER_WINDOW_SIZE);
+                buffer_put_value(&s_temp_buf, flt_temp);
+
+                /* 2. Relative Humidity — SHTC3 @ 0x70 */
+                float raw_hum  = i2c_sensor_read(SENSOR_ADDR_HUMIDITY, HUMIDITY);
+                float flt_hum  = filter_sensor_value(raw_hum, FILTER_WINDOW_SIZE);
+                buffer_put_value(&s_hum_buf, flt_hum);
+
+                /* 3. eCO2 — SGP30 @ 0x58 */
+                float raw_co2  = i2c_sensor_read(SENSOR_ADDR_CO2, CO2);
+                float flt_co2  = filter_sensor_value(raw_co2, FILTER_WINDOW_SIZE);
+                buffer_put_value(&s_co2_buf, flt_co2);
+
+                /* Optional: single-line live readout for debugging */
+                printf("[READ] T=%6.2f C  RH=%5.1f %%  CO2=%6.0f ppm\r\n",
+                       (double)flt_temp, (double)flt_hum, (double)flt_co2);
+            }
+
+            /* ── 30 s: Compute statistics and send BLE packets ───────────────── */
+            if ((now - s_last_report_tick) >= BLE_REPORT_PERIOD_MS)
+            {
+                s_last_report_tick = now;
+
+                ble_packet_t pkt;
+
+                printf("\r\n--- 30-second BLE Report ---\r\n");
+
+                ble_compute_statistics(&s_temp_buf, TEMP,     &pkt);
+                send_ble_packet_uart(&pkt, TEMP);
+
+                ble_compute_statistics(&s_hum_buf,  HUMIDITY, &pkt);
+                send_ble_packet_uart(&pkt, HUMIDITY);
+
+                ble_compute_statistics(&s_co2_buf,  CO2,      &pkt);
+                send_ble_packet_uart(&pkt, CO2);
+
+                printf("----------------------------\r\n\r\n");
+            }
   }
   /* USER CODE END 3 */
 }
