@@ -1,0 +1,2 @@
+../Core/Src/i2c_hal.c:45:17:mock_rand_range	16	static
+../Core/Src/i2c_hal.c:52:8:i2c_hal_read_regs	32	static

@@ -29,6 +29,7 @@
 /* USER CODE BEGIN Includes */
 
 #include <stdio.h>              /* printf()                                    */
+#include <stdlib.h>             /* srand(), rand() for mock RNG seed          */
 #include "sensor_manager.h"     /* i2c_sensor_read(), sensor_t                 */
 #include "median_filter.h"      /* filter_sensor_value(), median_filter_reset_all() */
 #include "circular_buffer.h"    /* buf_handle_t, buffer_put_value(), ...       */
@@ -52,13 +53,13 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-I2C_HandleTypeDef hi2c1;
+I2C_HandleTypeDef hi2c3;
 
 I2S_HandleTypeDef hi2s3;
 
 SPI_HandleTypeDef hspi1;
 
-UART_HandleTypeDef huart2;
+UART_HandleTypeDef huart3;
 
 /* USER CODE BEGIN PV */
 
@@ -72,7 +73,7 @@ UART_HandleTypeDef huart2;
 /* ── Circular buffer capacity ────────────────────────────────────────────
  *   30 seconds × 1 sample/s = 30 samples.
  *   Adding a few extra slots (32) avoids any off-by-one wrap issues.      */
-#define SENSOR_BUF_CAPACITY     (32U)
+#define SENSOR_BUF_CAPACITY     (30U)
 
 /* ── Filter window size ──────────────────────────────────────────────────
  *   5-sample window: good noise rejection, low latency at 1 Hz.
@@ -98,10 +99,10 @@ static uint32_t s_last_report_tick = 0UL;
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
-static void MX_I2C1_Init(void);
 static void MX_I2S3_Init(void);
 static void MX_SPI1_Init(void);
-static void MX_USART2_UART_Init(void);
+static void MX_I2C3_Init(void);
+static void MX_USART3_UART_Init(void);
 void MX_USB_HOST_Process(void);
 
 /* USER CODE BEGIN PFP */
@@ -112,22 +113,21 @@ void MX_USB_HOST_Process(void);
 /* USER CODE BEGIN 0 */
 
 /*
- * Redirect printf() → UART2 (115 200 8N1).
+ * Redirect printf() → UART3 (115 200 8N1).
  *
  * STM32CubeIDE's syscalls.c provides a weak _write() that calls
  * __io_putchar() one byte at a time.  This override sends the whole
  * buffer in a single HAL_UART_Transmit() call, which is more efficient
  * and avoids the overhead of per-byte interrupt entries.
  *
- * NOTE: huart2 is declared in main.c by CubeIDE; the extern declaration
- * here makes it visible to this translation unit.
+ * NOTE: huart3 is declared above in the "Private variables" section of
+ * this same translation unit; no extern declaration is needed here.
  */
-extern UART_HandleTypeDef huart2;
 
 int __io_putchar(int ch)
 {
     uint8_t byte = (uint8_t)ch;
-    HAL_UART_Transmit(&huart2, &byte, 1U, HAL_MAX_DELAY);
+    HAL_UART_Transmit(&huart3, &byte, 1U, HAL_MAX_DELAY);
     return ch;
 }
 
@@ -162,12 +162,15 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_I2C1_Init();
   MX_I2S3_Init();
   MX_SPI1_Init();
   MX_USB_HOST_Init();
-  MX_USART2_UART_Init();
+  MX_I2C3_Init();
+  MX_USART3_UART_Init();
   /* USER CODE BEGIN 2 */
+
+  /* ── Seed the pseudo-random number generator for mock sensor data ── */
+  srand((unsigned int)HAL_GetTick());
 
   /* Initialise all median filter instances */
       median_filter_reset_all();
@@ -182,7 +185,7 @@ int main(void)
       s_last_report_tick = HAL_GetTick();
 
       printf("\r\n========================================\r\n");
-      printf("  Borda Academy 2026 — Sensor Monitor  \r\n");
+      printf("  Borda Academy 2026 - Sensor Monitor  \r\n");
       printf("  Board: STM32F407G-DISC1              \r\n");
       printf("  Read period : %lu ms                 \r\n", SENSOR_READ_PERIOD_MS);
       printf("  Report period: %lu ms                \r\n", BLE_REPORT_PERIOD_MS);
@@ -305,36 +308,36 @@ void SystemClock_Config(void)
 }
 
 /**
-  * @brief I2C1 Initialization Function
+  * @brief I2C3 Initialization Function
   * @param None
   * @retval None
   */
-static void MX_I2C1_Init(void)
+static void MX_I2C3_Init(void)
 {
 
-  /* USER CODE BEGIN I2C1_Init 0 */
+  /* USER CODE BEGIN I2C3_Init 0 */
 
-  /* USER CODE END I2C1_Init 0 */
+  /* USER CODE END I2C3_Init 0 */
 
-  /* USER CODE BEGIN I2C1_Init 1 */
+  /* USER CODE BEGIN I2C3_Init 1 */
 
-  /* USER CODE END I2C1_Init 1 */
-  hi2c1.Instance = I2C1;
-  hi2c1.Init.ClockSpeed = 100000;
-  hi2c1.Init.DutyCycle = I2C_DUTYCYCLE_2;
-  hi2c1.Init.OwnAddress1 = 0;
-  hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
-  hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
-  hi2c1.Init.OwnAddress2 = 0;
-  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
-  hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
-  if (HAL_I2C_Init(&hi2c1) != HAL_OK)
+  /* USER CODE END I2C3_Init 1 */
+  hi2c3.Instance = I2C3;
+  hi2c3.Init.ClockSpeed = 100000;
+  hi2c3.Init.DutyCycle = I2C_DUTYCYCLE_2;
+  hi2c3.Init.OwnAddress1 = 0;
+  hi2c3.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c3.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c3.Init.OwnAddress2 = 0;
+  hi2c3.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c3.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c3) != HAL_OK)
   {
     Error_Handler();
   }
-  /* USER CODE BEGIN I2C1_Init 2 */
+  /* USER CODE BEGIN I2C3_Init 2 */
 
-  /* USER CODE END I2C1_Init 2 */
+  /* USER CODE END I2C3_Init 2 */
 
 }
 
@@ -411,35 +414,35 @@ static void MX_SPI1_Init(void)
 }
 
 /**
-  * @brief USART2 Initialization Function
+  * @brief USART3 Initialization Function
   * @param None
   * @retval None
   */
-static void MX_USART2_UART_Init(void)
+static void MX_USART3_UART_Init(void)
 {
 
-  /* USER CODE BEGIN USART2_Init 0 */
+  /* USER CODE BEGIN USART3_Init 0 */
 
-  /* USER CODE END USART2_Init 0 */
+  /* USER CODE END USART3_Init 0 */
 
-  /* USER CODE BEGIN USART2_Init 1 */
+  /* USER CODE BEGIN USART3_Init 1 */
 
-  /* USER CODE END USART2_Init 1 */
-  huart2.Instance = USART2;
-  huart2.Init.BaudRate = 115200;
-  huart2.Init.WordLength = UART_WORDLENGTH_8B;
-  huart2.Init.StopBits = UART_STOPBITS_1;
-  huart2.Init.Parity = UART_PARITY_NONE;
-  huart2.Init.Mode = UART_MODE_TX_RX;
-  huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart2.Init.OverSampling = UART_OVERSAMPLING_16;
-  if (HAL_UART_Init(&huart2) != HAL_OK)
+  /* USER CODE END USART3_Init 1 */
+  huart3.Instance = USART3;
+  huart3.Init.BaudRate = 115200;
+  huart3.Init.WordLength = UART_WORDLENGTH_8B;
+  huart3.Init.StopBits = UART_STOPBITS_1;
+  huart3.Init.Parity = UART_PARITY_NONE;
+  huart3.Init.Mode = UART_MODE_TX_RX;
+  huart3.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart3.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart3) != HAL_OK)
   {
     Error_Handler();
   }
-  /* USER CODE BEGIN USART2_Init 2 */
+  /* USER CODE BEGIN USART3_Init 2 */
 
-  /* USER CODE END USART2_Init 2 */
+  /* USER CODE END USART3_Init 2 */
 
 }
 
@@ -529,6 +532,14 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(OTG_FS_OverCurrent_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : Audio_SCL_Pin Audio_SDA_Pin */
+  GPIO_InitStruct.Pin = Audio_SCL_Pin|Audio_SDA_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_AF_OD;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  GPIO_InitStruct.Alternate = GPIO_AF4_I2C1;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /*Configure GPIO pin : MEMS_INT2_Pin */
   GPIO_InitStruct.Pin = MEMS_INT2_Pin;

@@ -3,7 +3,7 @@
  * @brief   Driver for Texas Instruments TMP102 Digital Temperature Sensor
  *
  * @datasheet
- *   https://www.ti.com/lit/ds/symlink/tmp102.pdf?ts=1775630739272&ref_url=https%253A%252F%252Fwww.ti.com%252Fproduct%252FTMP102%252Fpart-details%252FTMP102AIDRLR
+ *   https://www.ti.com/lit/ds/symlink/tmp102.pdf
  *   (SBOS397I – AUGUST 2007 – REVISED JUNE 2024)
  *
  * @details

@@ -1,0 +1,6 @@
+../Core/Src/circular_buffer.c:22:13:buf_is_empty	3
+../Core/Src/circular_buffer.c:29:5:buffer_init	4
+../Core/Src/circular_buffer.c:47:5:buffer_put_value	3
+../Core/Src/circular_buffer.c:76:5:buffer_get_value	4
+../Core/Src/circular_buffer.c:98:10:buffer_get_count	4
+../Core/Src/circular_buffer.c:119:5:buffer_peek_all	5

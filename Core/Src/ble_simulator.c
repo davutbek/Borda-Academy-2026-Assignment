@@ -66,15 +66,20 @@ int ble_compute_statistics(struct buf_handle_t *p_buf,
     p_packet->sensor_type = sensor;
 
     /* ── Snapshot buffer contents non-destructively ───────────────────── */
-    /* Clamp to scratch buffer capacity */
-    uint16_t cap = (p_buf->max_len < BLE_SCRATCH_BUF_SIZE)
-                   ? p_buf->max_len
-                   : BLE_SCRATCH_BUF_SIZE;
-    (void)cap; /* used implicitly via buffer_peek_all limiting to max_len */
-
     if (buffer_peek_all(p_buf, scratch, &n) != CIRCULAR_BUF_OK)
     {
         return -1;
+    }
+
+    /*
+     * Safety clamp: guard against scratch[] overflow if the caller ever
+     * passes a buffer whose max_len exceeds BLE_SCRATCH_BUF_SIZE.
+     * buffer_peek_all() writes exactly n elements; clamping n here ensures
+     * subsequent loops and the sort stay within the allocated scratch size.
+     */
+    if (n > BLE_SCRATCH_BUF_SIZE)
+    {
+        n = BLE_SCRATCH_BUF_SIZE;
     }
 
     p_packet->sample_count = n;
